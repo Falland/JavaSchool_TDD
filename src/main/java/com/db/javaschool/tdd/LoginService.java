@@ -1,6 +1,10 @@
 package com.db.javaschool.tdd;
 
 
+
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
+
 /**
  * There are several rules for logging in to our system:
  * When logging in, a user provides a user name and password
@@ -18,12 +22,29 @@ package com.db.javaschool.tdd;
 public class LoginService {
 
     private final IAccountRepository repo;
+    private ConcurrentHashMap<String, AtomicReference<ILoginState>> loginState = new ConcurrentHashMap<>();
 
     public LoginService(IAccountRepository repo) {
         this.repo = repo;
     }
 
     public void login(String userName, String password) {
+        if (userName == null || userName.isEmpty() || password == null || password.isEmpty()) {
+            throw new IllegalArgumentException("UserName and Password should not be blank");
+        }
+
         IAccount acc = repo.find(userName);
+
+        if (acc == null) {
+            throw new IllegalStateException("Account is not known");
+        }
+
+        loginState.putIfAbsent(userName, new AtomicReference<ILoginState>(new AwaitingLoginState()));
+        ILoginState currentState = loginState.get(userName).get();
+        ILoginState newState = currentState.login(acc, password);
+        while (!loginState.get(userName).compareAndSet(currentState, newState)) {
+            currentState = loginState.get(userName).get();
+            newState = currentState.login(acc, password);
+        }
     }
 }
